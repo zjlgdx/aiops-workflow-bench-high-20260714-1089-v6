@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,10 @@ func run(args []string, database string, stdout, stderr io.Writer) int {
 		title := strings.TrimSpace(args[1])
 		if title == "" {
 			fmt.Fprintln(stderr, "title must not be empty")
+			return 1
+		}
+		if strings.ContainsAny(title, "\r\n") {
+			fmt.Fprintln(stderr, "title must be one line")
 			return 1
 		}
 		if database == "" {
@@ -85,11 +90,22 @@ func loadTodos(path string) ([]todo, error) {
 	}
 	defer file.Close()
 
+	decoder := json.NewDecoder(file)
 	var todos []todo
-	if err := json.NewDecoder(file).Decode(&todos); err != nil {
+	if err := decoder.Decode(&todos); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	return todos, nil
+
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); errors.Is(err, io.EOF) {
+		return todos, nil
+	} else if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("database contains trailing data")
 }
 
 func nextID(todos []todo) int {
